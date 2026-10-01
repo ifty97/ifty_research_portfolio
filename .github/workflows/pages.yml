@@ -1,0 +1,61 @@
+name: Portfolio and Scholar citations
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Once daily at 00:17 UTC (06:17 Bangladesh time); GitHub may run it later.
+    - cron: '17 0 * * *'
+
+concurrency:
+  group: portfolio-pages
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the portfolio
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check the verified Scholar profile
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+        run: node .github/scripts/sync-scholar.mjs
+      - name: Preserve the last verified result in the repository
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data/scholar-citations.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update verified Scholar citations"
+            git push origin HEAD:main
+          fi
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Publish GitHub Pages
+        id: publish
+        uses: actions/deploy-pages@v4
